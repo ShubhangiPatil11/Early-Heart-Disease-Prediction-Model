@@ -1,10 +1,9 @@
 streamlit
-numpy
 pandas
+numpy
 scikit-learn
 joblib
-
-
-
-
-
+pytesseract
+Pillow
+pdf2image
+plotly
