@@ -8,6 +8,7 @@ import sqlite3
 import hashlib
 import joblib
 import pytesseract
+
 from PIL import Image
 from pdf2image import convert_from_bytes
 import plotly.graph_objects as go
@@ -21,9 +22,8 @@ import html
 def safe_rerun():
     st.rerun()
 
+  
 
-POPPLER_PATH = r"C:\Poppler\poppler-25.11.0\Library\bin"  
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe" 
 
 
 st.set_page_config(page_title="HeartCareAI", page_icon="🫀", layout="wide")
@@ -866,8 +866,10 @@ def page_manual():
                 st.error("Model not available. Place 'heart_disease_best_model.pkl' in the app folder.")
             else:
                 with st.spinner("Running prediction..."):
+                    df = prepare_input(df)
                     pred = model.predict(df)[0]
                     prob = model.predict_proba(df)[0][1] * 100
+                    
                     label = "High Risk" if pred == 1 else "Low Risk"
 
                 chip_class = "result-high" if pred == 1 else "result-low"
@@ -892,7 +894,8 @@ def page_manual():
                 fig.update_layout(margin=dict(t=6,b=6,l=6,r=6), height=300, showlegend=False,
                                   paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                                   annotations=[dict(text=f"{prob:.1f}%", showarrow=False, font=dict(size=24, color="#6f2dbd"))])
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
+
 
                 if st.session_state["logged_in"]:
                     save_history(st.session_state["username"], "manual", df.to_json(orient="records"), prob, label)
@@ -900,7 +903,31 @@ def page_manual():
 
 
 
-def page_upload():
+
+    def page_upload():
+        file = st.file_uploader(
+        "Upload report",
+        type=["png", "jpg", "jpeg", "pdf"]
+    )
+
+    if not file:
+        st.info("Upload a scanned report image or PDF.")
+        return
+
+    ext = file.name.split(".")[-1].lower()
+
+    try:
+        if ext == "pdf":
+            pages = convert_from_bytes(file.read())  # ✅ CORRECT PLACE
+            img = pages[0]
+        else:
+            img = Image.open(file)
+    except Exception as e:
+        st.error("Failed to process the file.")
+        st.exception(e)
+        return
+
+
     st.markdown("""
 <div class="upload-header">
     <div class="upload-header-icon">📄</div>
@@ -928,7 +955,8 @@ def page_upload():
     ext = file.name.split(".")[-1].lower()
     try:
         if ext == "pdf":
-            pages = convert_from_bytes(file.read(), poppler_path=POPPLER_PATH)
+            pages = convert_from_bytes(file.read())
+
             img = pages[0]
         else:
             img = Image.open(file)
@@ -995,7 +1023,10 @@ def page_upload():
             prog.empty()
         else:
             with st.spinner("Predicting..."):
-                pred = model.predict(df)[0]
+                df = prepare_input(df)
+                
+
+
                 prob = model.predict_proba(df)[0][1] * 100
                 label = "High Risk" if pred == 1 else "Low Risk"
             prog.progress(100)
@@ -1230,6 +1261,65 @@ def init_history_db():
     """)
     conn.commit()
     conn.close()
+EXPECTED_COLUMNS = [
+    "Age",
+    "Sex",
+    "ChestPainType",
+    "RestingBP",
+    "Cholesterol",
+    "FastingBS",
+    "RestingECG",
+    "MaxHR",
+    "ExerciseAngina",
+    "Oldpeak",
+    "ST_Slope"
+]
+
+CATEGORICAL_COLS = [
+    "Sex",
+    "ChestPainType",
+    "RestingECG",
+    "ExerciseAngina",
+    "ST_Slope"
+]
+
+def prepare_input(df):
+    # --- ALIGN COLUMNS ---
+    df = df[EXPECTED_COLUMNS]
+
+    # --- CATEGORICAL VALUE SAFETY (CRITICAL) ---
+    df["Sex"] = df["Sex"].map({"M": "M", "F": "F"}).fillna("M")
+    df["ExerciseAngina"] = df["ExerciseAngina"].map({"Y": "Y", "N": "N"}).fillna("N")
+    df["RestingECG"] = df["RestingECG"].map({
+        "Normal": "Normal",
+        "ST": "ST",
+        "LVH": "LVH"
+    }).fillna("Normal")
+
+    df["ST_Slope"] = df["ST_Slope"].map({
+        "Up": "Up",
+        "Flat": "Flat",
+        "Down": "Down"
+    }).fillna("Flat")
+
+    df["ChestPainType"] = df["ChestPainType"].map({
+        "ATA": "ATA",
+        "NAP": "NAP",
+        "ASY": "ASY",
+        "TA": "TA"
+    }).fillna("TA")
+
+    # --- FORCE CATEGORICAL DTYPE ---
+    for col in CATEGORICAL_COLS:
+        df[col] = df[col].astype("category")
+
+    # --- FORCE NUMERIC DTYPE ---
+    numeric_cols = list(set(EXPECTED_COLUMNS) - set(CATEGORICAL_COLS))
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    return df
+
 
 def save_history(username, input_type, input_data, prob, pred):
     conn = sqlite3.connect(DB_HISTORY)
