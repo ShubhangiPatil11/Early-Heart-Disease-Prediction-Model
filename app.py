@@ -910,9 +910,7 @@ def page_manual():
         type=["png", "jpg", "jpeg", "pdf"]
     )
 
-    if not file:
-        st.info("Upload a scanned report image or PDF.")
-        return
+    
 
     ext = file.name.split(".")[-1].lower()
 
